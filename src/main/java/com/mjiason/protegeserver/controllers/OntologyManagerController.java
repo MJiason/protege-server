@@ -26,7 +26,6 @@ public class OntologyManagerController {
     @CrossOrigin(origins = "http://localhost:4200")
     public List<OWLClassShort> getClasses() {
         ontologyService.getOntology();
-        // Sample list of strings
         return ontologyService.getOntologyClasses();
     }
 
