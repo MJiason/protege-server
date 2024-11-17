@@ -4,6 +4,8 @@ import com.mjiason.protegeserver.services.OntologyStorageService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.semanticweb.owlapi.apibinding.OWLManager;
+import org.semanticweb.owlapi.formats.OWLXMLDocumentFormat;
+import org.semanticweb.owlapi.formats.RDFXMLDocumentFormat;
 import org.semanticweb.owlapi.model.*;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
@@ -43,7 +45,10 @@ public class OntologyFileController {
         try {
             ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
             OWLOntologyManager manager = OWLManager.createOWLOntologyManager();
-            manager.saveOntology(storageService.getOntology(), outputStream);
+            // Set the format explicitly
+            OWLDocumentFormat format = new OWLXMLDocumentFormat();
+            format.asPrefixOWLDocumentFormat().setDefaultPrefix("http://example.com/ontology#");
+            manager.saveOntology(storageService.getOntology(), format, outputStream);
 
             return ResponseEntity.ok()
                     .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=ontology.owl")

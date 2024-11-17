@@ -12,6 +12,5 @@ public class OntologyClassAPI {
     private String uniqueName;                // Unique identifier for the class
     private String label;                     // Human-readable label
     private String comment;                   // Description or comment
-    private List<OntologyAnnotationAPI> annotations;  // List of annotations
 }
 

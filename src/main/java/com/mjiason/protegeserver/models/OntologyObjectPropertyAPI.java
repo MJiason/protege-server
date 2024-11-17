@@ -15,6 +15,5 @@ public class OntologyObjectPropertyAPI {
     private String label;                     // Human-readable label
     private String comment;                   // Optional description
     private PropertyType propertyType;        // Type of property (e.g., FunctionalProperty)
-    private List<OntologyAnnotationAPI> annotations;  // List of annotations
 }
 

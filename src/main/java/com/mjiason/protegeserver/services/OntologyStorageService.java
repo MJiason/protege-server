@@ -3,11 +3,14 @@ package com.mjiason.protegeserver.services;
 import com.mjiason.protegeserver.models.*;
 import org.semanticweb.owlapi.apibinding.OWLManager;
 import org.semanticweb.owlapi.model.*;
+import org.semanticweb.owlapi.search.EntitySearcher;
 import org.semanticweb.owlapi.vocab.OWLRDFVocabulary;
 import org.springframework.stereotype.Service;
 
+import java.io.File;
 import java.util.*;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 @Service
 public class OntologyStorageService {
@@ -17,7 +20,21 @@ public class OntologyStorageService {
     private final Map<String, OntologyDataPropertyAPI> dataProperties = new HashMap<>();
     private final Map<String, OntologyIndividualAPI> individuals = new HashMap<>();
 
+    public OntologyStorageService() {
+        try {
+            OWLOntologyManager manager = OWLManager.createOWLOntologyManager();
+            File file = new File("src/main/resources/api-ontology.owl");
+            ontology = manager.loadOntologyFromOntologyDocument(file);
+            dataFactory = manager.getOWLDataFactory();
+            setOntology(ontology);
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
     private OWLOntology ontology;
+    private OWLDataFactory dataFactory;
 
     public void addOntologyClass(OntologyClassAPI ontologyClass) {
         validateOntologyClass(ontologyClass);
@@ -140,6 +157,31 @@ public class OntologyStorageService {
         // Add other validations as needed.
     }
 
+
+    /**
+     * Retrieves the comment (rdfs:comment) of a given OWL class.
+     *
+     * @param owlClass The OWL class.
+     * @return The comment as a String, or an empty string if not found.
+     */
+    private String getClassComment(OWLClass owlClass) {
+        for (OWLAnnotation annotation : EntitySearcher.getAnnotations(owlClass, ontology, dataFactory.getRDFSComment()).toList())
+            if (annotation.getValue() instanceof OWLLiteral) {
+                return ((OWLLiteral) annotation.getValue()).getLiteral();
+            }
+
+        return "";
+    }
+
+    private String getLabelComment(OWLClass owlClass) {
+        for (OWLAnnotation annotation : EntitySearcher.getAnnotations(owlClass, ontology, dataFactory.getRDFSLabel()).toList())
+            if (annotation.getValue() instanceof OWLLiteral) {
+                return ((OWLLiteral) annotation.getValue()).getLiteral();
+            }
+
+        return "";
+    }
+
     // Populate the in-memory data structures from an OWLOntology
     public void setOntology(OWLOntology ontology) {
         ontologyClasses.clear();
@@ -149,9 +191,12 @@ public class OntologyStorageService {
 
         ontology.classesInSignature().forEach(owlClass -> {
             String iri = owlClass.getIRI().toString();
+            // String label = getLabelComment(owlClass);
+            // String comment = getClassComment(owlClass);
+
             String label = getAnnotation(owlClass, ontology, OWLRDFVocabulary.RDFS_LABEL);
             String comment = getAnnotation(owlClass, ontology, OWLRDFVocabulary.RDFS_COMMENT);
-            ontologyClasses.put(iri, new OntologyClassAPI(iri, label, comment, new ArrayList<>()));
+            ontologyClasses.put(iri, new OntologyClassAPI(iri, label, comment));
         });
 
         ontology.objectPropertiesInSignature().forEach(owlObjectProperty -> {
@@ -164,7 +209,7 @@ public class OntologyStorageService {
             List<OntologyClassAPI> range = getRangeClasses(owlObjectProperty, ontology);
 
             // Initialize object properties with domain and range as lists
-            objectProperties.put(iri, new OntologyObjectPropertyAPI(iri, domain, range, label, comment, PropertyType.FunctionalProperty, new ArrayList<>()));
+            objectProperties.put(iri, new OntologyObjectPropertyAPI(iri, domain, range, label, comment, PropertyType.FunctionalProperty));
         });
 
         // Populate Ontology Data Properties
@@ -254,16 +299,14 @@ public class OntologyStorageService {
      * @return the annotation value (String), or null if the annotation is not found
      */
     private String getAnnotation(OWLEntity entity, OWLOntology ontology, OWLRDFVocabulary annotationType) {
-        /*// Fetch annotations of the given OWLEntity
-        List<OWLAnnotation> annotations = entity.getAnnotations(ontology, OWLManager.getOWLDataFactory().getOWLAnnotationProperty(annotationType.getIRI()));
+        // Fetch annotations of the given OWLEntity
+        Stream<OWLAnnotation> annotations = EntitySearcher.getAnnotations(entity, ontology, OWLManager.getOWLDataFactory().getOWLAnnotationProperty(annotationType.getIRI()));
 
         // Try to find the first annotation and return its literal value
-        return annotations.stream()
+        return annotations
                 .findFirst()  // Get the first annotation found
                 .map(annotation -> ((OWLLiteral) annotation.getValue()).getLiteral())  // Extract the literal value
-                .orElse(null);  // If no annotation is found, return null*/
-
-        return "";
+                .orElse("");  // If no annotation is found, return null
     }
 
     private List<OntologyClassAPI> getDomainClasses(OWLObjectProperty property, OWLOntology ontology) {
