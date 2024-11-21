@@ -6,7 +6,6 @@ import com.mjiason.protegeserver.services.ValidationException;
 import com.mjiason.protegeserver.services.EntityNotFoundException;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -19,14 +18,17 @@ import java.util.Collection;
 @Tag(name = "Ontology Class API", description = "CRUD operations for Ontology Classes")
 public class OntologyClassController {
 
-    @Autowired
-    private OntologyStorageService storageService;
+    private final OntologyStorageService storageService;
+
+    public OntologyClassController(OntologyStorageService storageService) {
+        this.storageService = storageService;
+    }
 
     @PostMapping
     @Operation(summary = "Create an Ontology Class", description = "Adds a new class to the ontology with validation.")
-    public ResponseEntity<Void> createClass(@RequestBody OntologyClassAPI ontologyClass) {
+    public ResponseEntity<OntologyClassAPI> createClass(@RequestBody OntologyClassAPI ontologyClass) {
         storageService.addOntologyClass(ontologyClass);
-        return ResponseEntity.ok().build();
+        return ResponseEntity.ok(ontologyClass);
     }
 
     @GetMapping("/{uniqueName}")
