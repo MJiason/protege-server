@@ -2,12 +2,15 @@ package com.mjiason.protegeserver.services;
 
 import com.mjiason.protegeserver.models.*;
 import org.semanticweb.owlapi.apibinding.OWLManager;
+import org.semanticweb.owlapi.formats.PrefixDocumentFormat;
 import org.semanticweb.owlapi.model.*;
 import org.semanticweb.owlapi.search.EntitySearcher;
+import org.semanticweb.owlapi.util.DefaultPrefixManager;
 import org.semanticweb.owlapi.vocab.OWLRDFVocabulary;
 import org.springframework.stereotype.Service;
 
 import java.io.File;
+import java.io.InputStream;
 import java.util.*;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -15,26 +18,32 @@ import java.util.stream.Stream;
 @Service
 public class OntologyStorageService {
 
+    private final OntologyAPI ontology = new OntologyAPI();
     private final Map<String, OntologyClassAPI> ontologyClasses = new HashMap<>();
     private final Map<String, OntologyObjectPropertyAPI> objectProperties = new HashMap<>();
     private final Map<String, OntologyDataPropertyAPI> dataProperties = new HashMap<>();
     private final Map<String, OntologyIndividualAPI> individuals = new HashMap<>();
 
+    private OWLOntology owlOntology;
+    private OWLDataFactory dataFactory;
+
+    private DefaultPrefixManager prefixManager;
+
+    private OWLOntologyManager manager = OWLManager.createOWLOntologyManager();
+
     public OntologyStorageService() {
         try {
-            OWLOntologyManager manager = OWLManager.createOWLOntologyManager();
             File file = new File("src/main/resources/api-ontology.owl");
-            ontology = manager.loadOntologyFromOntologyDocument(file);
-            dataFactory = manager.getOWLDataFactory();
-            setOntology(ontology);
-
+            OWLOntology loadedOntology = loadOWLOntology(file);
+            populateOntologyFromOWL(loadedOntology);
         } catch (Exception e) {
             e.printStackTrace();
         }
     }
 
-    private OWLOntology ontology;
-    private OWLDataFactory dataFactory;
+    public OntologyAPI getOntology() {
+        return ontology;
+    }
 
     public void addOntologyClass(OntologyClassAPI ontologyClass) {
         validateOntologyClass(ontologyClass);
@@ -165,7 +174,7 @@ public class OntologyStorageService {
      * @return The comment as a String, or an empty string if not found.
      */
     private String getClassComment(OWLClass owlClass) {
-        for (OWLAnnotation annotation : EntitySearcher.getAnnotations(owlClass, ontology, dataFactory.getRDFSComment()).toList())
+        for (OWLAnnotation annotation : EntitySearcher.getAnnotations(owlClass, owlOntology, dataFactory.getRDFSComment()).toList())
             if (annotation.getValue() instanceof OWLLiteral) {
                 return ((OWLLiteral) annotation.getValue()).getLiteral();
             }
@@ -174,7 +183,7 @@ public class OntologyStorageService {
     }
 
     private String getLabelComment(OWLClass owlClass) {
-        for (OWLAnnotation annotation : EntitySearcher.getAnnotations(owlClass, ontology, dataFactory.getRDFSLabel()).toList())
+        for (OWLAnnotation annotation : EntitySearcher.getAnnotations(owlClass, owlOntology, dataFactory.getRDFSLabel()).toList())
             if (annotation.getValue() instanceof OWLLiteral) {
                 return ((OWLLiteral) annotation.getValue()).getLiteral();
             }
@@ -182,72 +191,136 @@ public class OntologyStorageService {
         return "";
     }
 
+    public OWLOntology loadOWLOntology(File file) {
+        try {
+            manager = OWLManager.createOWLOntologyManager();
+            return manager.loadOntologyFromOntologyDocument(file);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+
+        return null;
+    }
+
+    public OWLOntology loadOWLOntology(InputStream inputStream) {
+        try {
+            return manager.loadOntologyFromOntologyDocument(inputStream);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+
+        return null;
+    }
+
+    public void populateOntologyFromOWL(OWLOntology loadedOWLOntology) {
+        try {
+            dataFactory = manager.getOWLDataFactory();
+            owlOntology = loadedOWLOntology;
+
+            String defaultPrefix = "http://www.example.com/ontologies/UnnamedOntology.owl#";
+            ontology.setUniqueName("UnnamedOntology");
+
+            OWLDocumentFormat format = manager.getOntologyFormat(owlOntology);
+            if (format instanceof PrefixDocumentFormat prefixFormat) {
+
+
+                if (prefixFormat.getDefaultPrefix() != null) {
+                    defaultPrefix = prefixFormat.getDefaultPrefix();
+                }
+
+                prefixManager = new DefaultPrefixManager(defaultPrefix);
+                prefixManager.setPrefix("owl:", "http://www.w3.org/2002/07/owl#");
+
+                ontology.setBaseIRI(defaultPrefix);
+
+                ontology.setUniqueName(owlOntology.getOntologyID().getOntologyIRI()
+                        .map(IRI::getIRIString)
+                        .orElse("UnnamedOntology"));
+
+                System.out.println("Prefix: " + prefixFormat.getDefaultPrefix());
+                System.out.println("owlOntology.getOntologyID().getOntologyIRI(): " + owlOntology.getOntologyID().getOntologyIRI().get());
+            } else {
+                System.out.println("The ontology format does not support prefixes.");
+            }
+
+            setOWLOntology(owlOntology);
+
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
     // Populate the in-memory data structures from an OWLOntology
-    public void setOntology(OWLOntology ontology) {
+    public void setOWLOntology(OWLOntology owlOntology) {
         ontologyClasses.clear();
         objectProperties.clear();
         dataProperties.clear();
         individuals.clear();
 
-        ontology.classesInSignature().forEach(owlClass -> {
-            String iri = owlClass.getIRI().toString();
+        owlOntology.classesInSignature().forEach(owlClass -> {
+            IRI iri = owlClass.getIRI();
+            String name = prefixManager.getShortForm(iri);
             // String label = getLabelComment(owlClass);
             // String comment = getClassComment(owlClass);
 
-            String label = getAnnotation(owlClass, ontology, OWLRDFVocabulary.RDFS_LABEL);
-            String comment = getAnnotation(owlClass, ontology, OWLRDFVocabulary.RDFS_COMMENT);
-            ontologyClasses.put(iri, new OntologyClassAPI(iri, label, comment));
+            String label = getAnnotation(owlClass, owlOntology, OWLRDFVocabulary.RDFS_LABEL);
+            String comment = getAnnotation(owlClass, owlOntology, OWLRDFVocabulary.RDFS_COMMENT);
+            ontologyClasses.put(name, new OntologyClassAPI(name, label, comment));
         });
 
-        ontology.objectPropertiesInSignature().forEach(owlObjectProperty -> {
-            String iri = owlObjectProperty.getIRI().toString();
-            String label = getAnnotation(owlObjectProperty, ontology, OWLRDFVocabulary.RDFS_LABEL);
-            String comment = getAnnotation(owlObjectProperty, ontology, OWLRDFVocabulary.RDFS_COMMENT);
+        owlOntology.objectPropertiesInSignature().forEach(owlObjectProperty -> {
+            IRI iri = owlObjectProperty.getIRI();
+            String name = prefixManager.getShortForm(iri);
+            String label = getAnnotation(owlObjectProperty, owlOntology, OWLRDFVocabulary.RDFS_LABEL);
+            String comment = getAnnotation(owlObjectProperty, owlOntology, OWLRDFVocabulary.RDFS_COMMENT);
 
             // Retrieve domain and range information as Lists of OntologyClassAPI
-            List<OntologyClassAPI> domain = getDomainClasses(owlObjectProperty, ontology);
-            List<OntologyClassAPI> range = getRangeClasses(owlObjectProperty, ontology);
+            List<OntologyClassAPI> domain = getDomainClasses(owlObjectProperty, owlOntology);
+            List<OntologyClassAPI> range = getRangeClasses(owlObjectProperty, owlOntology);
 
             // Initialize object properties with domain and range as lists
-            objectProperties.put(iri, new OntologyObjectPropertyAPI(iri, domain, range, label, comment, PropertyType.FunctionalProperty));
+            objectProperties.put(name, new OntologyObjectPropertyAPI(name, domain, range, label, comment, PropertyType.FunctionalProperty));
         });
 
         // Populate Ontology Data Properties
-        ontology.dataPropertiesInSignature().forEach(owlDataProperty -> {
-            String iri = owlDataProperty.getIRI().toString();
-            String label = getAnnotation(owlDataProperty, ontology, OWLRDFVocabulary.RDFS_LABEL);
-            String comment = getAnnotation(owlDataProperty, ontology, OWLRDFVocabulary.RDFS_COMMENT);
+        owlOntology.dataPropertiesInSignature().forEach(owlDataProperty -> {
+            IRI iri = owlDataProperty.getIRI();
+            String name = prefixManager.getShortForm(iri);
+            String label = getAnnotation(owlDataProperty, owlOntology, OWLRDFVocabulary.RDFS_LABEL);
+            String comment = getAnnotation(owlDataProperty, owlOntology, OWLRDFVocabulary.RDFS_COMMENT);
 
             // Retrieve domain and range for the data property
-            List<OntologyClassAPI> domain = getDomainClasses(owlDataProperty, ontology);
-            String range = getDataRange(owlDataProperty, ontology);
+            List<OntologyClassAPI> domain = getDomainClasses(owlDataProperty, owlOntology);
+            String range = getDataRange(owlDataProperty, owlOntology);
 
             // Initialize data properties with domain and range
-            dataProperties.put(iri, new OntologyDataPropertyAPI(iri, domain, range, label, comment));
+            dataProperties.put(name, new OntologyDataPropertyAPI(name, domain, range, label, comment));
         });
 
         // Populate Ontology Individuals
-        ontology.individualsInSignature().forEach(owlIndividual -> {
-            String iri = owlIndividual.getIRI().toString();
-            String label = getAnnotation(owlIndividual, ontology, OWLRDFVocabulary.RDFS_LABEL);
-            String comment = getAnnotation(owlIndividual, ontology, OWLRDFVocabulary.RDFS_COMMENT);
+        owlOntology.individualsInSignature().forEach(owlIndividual -> {
+            IRI iri = owlIndividual.getIRI();
+            String name = prefixManager.getShortForm(iri);
+            String label = getAnnotation(owlIndividual, owlOntology, OWLRDFVocabulary.RDFS_LABEL);
+            String comment = getAnnotation(owlIndividual, owlOntology, OWLRDFVocabulary.RDFS_COMMENT);
 
 
             OntologyClassAPI classAPI = new OntologyClassAPI();
 
             // Retrieve associated object properties for the individual
-            List<OntologyObjectPropertyAPI> individualObjectProperties = getIndividualObjectProperties(owlIndividual, ontology);
+            List<OntologyObjectPropertyAPI> individualObjectProperties = getIndividualObjectProperties(owlIndividual, owlOntology);
 
             // Retrieve associated data properties for the individual
-            List<OntologyDataPropertyAPI> individualDataProperties = getIndividualDataProperties(owlIndividual, ontology);
+            List<OntologyDataPropertyAPI> individualDataProperties = getIndividualDataProperties(owlIndividual, owlOntology);
 
             // Create and add the individual to the storage
-            individuals.put(iri, new OntologyIndividualAPI(iri, classAPI, label, comment, individualObjectProperties, individualDataProperties));
+            individuals.put(name, new OntologyIndividualAPI(name, classAPI, label, comment, individualObjectProperties, individualDataProperties));
         });
     }
 
     // Convert in-memory data structures to a new OWLOntology and return it
-    public OWLOntology getOntology() throws OWLOntologyCreationException {
+    public OWLOntology getOWLOntology() throws OWLOntologyCreationException {
         OWLOntologyManager manager = OWLManager.createOWLOntologyManager();
         OWLOntology ontology = manager.createOntology();
 

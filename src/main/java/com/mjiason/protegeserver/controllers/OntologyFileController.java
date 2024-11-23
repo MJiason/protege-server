@@ -5,7 +5,6 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.semanticweb.owlapi.apibinding.OWLManager;
 import org.semanticweb.owlapi.formats.OWLXMLDocumentFormat;
-import org.semanticweb.owlapi.formats.RDFXMLDocumentFormat;
 import org.semanticweb.owlapi.model.*;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
@@ -15,7 +14,6 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.ByteArrayOutputStream;
-import java.io.IOException;
 
 @RestController
 @RequestMapping("/api/ontology/file")
@@ -25,13 +23,16 @@ public class OntologyFileController {
     @Autowired
     private OntologyStorageService storageService;
 
-    @PostMapping("/upload")
+    @PostMapping(value = "/upload", consumes = {"multipart/form-data"})
     @Operation(summary = "Upload an ontology file", description = "Loads an ontology from an OWL file.")
     public ResponseEntity<Void> uploadOntologyFile(@RequestParam("file") MultipartFile file) {
         try {
-            OWLOntologyManager manager = OWLManager.createOWLOntologyManager();
-            OWLOntology ontology = manager.loadOntologyFromOntologyDocument(file.getInputStream());
-            storageService.setOntology(ontology);
+            OWLOntology loadedOntology = storageService.loadOWLOntology(file.getInputStream());
+            if (loadedOntology == null) {
+                return ResponseEntity.badRequest().build();
+            }
+
+            storageService.populateOntologyFromOWL(loadedOntology);
             return ResponseEntity.ok().build();
         } catch (Exception e) {
             e.printStackTrace();
@@ -48,7 +49,7 @@ public class OntologyFileController {
             // Set the format explicitly
             OWLDocumentFormat format = new OWLXMLDocumentFormat();
             format.asPrefixOWLDocumentFormat().setDefaultPrefix("http://example.com/ontology#");
-            manager.saveOntology(storageService.getOntology(), format, outputStream);
+            manager.saveOntology(storageService.getOWLOntology(), format, outputStream);
 
             return ResponseEntity.ok()
                     .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=ontology.owl")
