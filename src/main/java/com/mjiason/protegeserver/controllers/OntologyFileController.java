@@ -49,13 +49,14 @@ public class OntologyFileController {
             // Set the format explicitly
             OWLDocumentFormat format = new OWLXMLDocumentFormat();
             format.asPrefixOWLDocumentFormat().setDefaultPrefix("http://example.com/ontology#");
+            storageService.applyChangesToOntology();
             manager.saveOntology(storageService.getOWLOntology(), format, outputStream);
 
             return ResponseEntity.ok()
                     .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=ontology.owl")
                     .contentType(MediaType.APPLICATION_OCTET_STREAM)
                     .body(outputStream.toByteArray());
-        } catch (OWLOntologyStorageException | OWLOntologyCreationException e) {
+        } catch (OWLOntologyStorageException e) {
             e.printStackTrace();
             return ResponseEntity.status(500).build();
         }

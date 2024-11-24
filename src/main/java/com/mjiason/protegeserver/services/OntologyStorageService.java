@@ -374,7 +374,7 @@ public class OntologyStorageService {
     }
 
     // Convert in-memory data structures to a new OWLOntology and return it
-    public OWLOntology getOWLOntology() throws OWLOntologyCreationException {
+    public OWLOntology getNewOWLOntology() throws OWLOntologyCreationException {
         OWLOntologyManager manager = OWLManager.createOWLOntologyManager();
         OWLOntology ontology = manager.createOntology();
 
@@ -412,6 +412,126 @@ public class OntologyStorageService {
         });
 
         return ontology;
+    }
+
+    public OWLOntology getOWLOntology() {
+        return owlOntology;
+    }
+
+    public void applyChangesToOntology() {
+        OWLOntologyManager manager = owlOntology.getOWLOntologyManager();
+        OWLDataFactory dataFactory = manager.getOWLDataFactory();
+
+        // Apply changes for ontology classes
+        for (Map.Entry<String, OntologyClassAPI> entry : ontologyClasses.entrySet()) {
+            String shortName = entry.getKey();
+            OntologyClassAPI ontologyClassAPI = entry.getValue();
+            IRI classIRI = IRI.create(ontology.getBaseIRI() + shortName);
+            OWLClass owlClass = dataFactory.getOWLClass(classIRI);
+
+            // Check if the class already exists, or add it
+            if (!owlOntology.containsClassInSignature(classIRI)) {
+                manager.addAxiom(owlOntology, dataFactory.getOWLDeclarationAxiom(owlClass));
+            }
+
+            // Add subclass axioms if needed
+            if (ontologyClassAPI.getParentClass() != null && !ontologyClassAPI.getParentClass().isEmpty()) {
+                OWLClass parentClass = dataFactory.getOWLClass(IRI.create(ontology.getBaseIRI() + ontologyClassAPI.getParentClass()));
+                OWLAxiom subclassAxiom = dataFactory.getOWLSubClassOfAxiom(owlClass, parentClass);
+                manager.addAxiom(owlOntology, subclassAxiom);
+            }
+        }
+
+        // Apply changes for object properties
+        for (Map.Entry<String, OntologyObjectPropertyAPI> entry : objectProperties.entrySet()) {
+            String shortName = entry.getKey();
+            OntologyObjectPropertyAPI objectPropertyAPI = entry.getValue();
+            IRI propertyIRI = IRI.create(ontology.getBaseIRI() + shortName);
+            OWLObjectProperty objectProperty = dataFactory.getOWLObjectProperty(propertyIRI);
+
+            // Check if the property already exists, or add it
+            if (!owlOntology.containsObjectPropertyInSignature(propertyIRI)) {
+                manager.addAxiom(owlOntology, dataFactory.getOWLDeclarationAxiom(objectProperty));
+            }
+
+            // Add domain and range axioms if applicable
+            for (String domainClassName : objectPropertyAPI.getDomain()) {
+                OWLClass domainClass = dataFactory.getOWLClass(IRI.create(ontology.getBaseIRI() + domainClassName));
+                OWLObjectPropertyDomainAxiom domainAxiom = dataFactory.getOWLObjectPropertyDomainAxiom(objectProperty, domainClass);
+                manager.addAxiom(owlOntology, domainAxiom);
+            }
+
+            for (String rangeClassName : objectPropertyAPI.getRange()) {
+                OWLClass rangeClass = dataFactory.getOWLClass(IRI.create(ontology.getBaseIRI() + rangeClassName));
+                OWLObjectPropertyRangeAxiom rangeAxiom = dataFactory.getOWLObjectPropertyRangeAxiom(objectProperty, rangeClass);
+                manager.addAxiom(owlOntology, rangeAxiom);
+            }
+
+            // Add other property characteristics (e.g., transitive, symmetric)
+            // Example: if the property is transitive
+            /*if (objectPropertyAPI.isTransitive()) {
+                OWLTransitiveObjectPropertyAxiom transitiveAxiom = dataFactory.getOWLTransitiveObjectPropertyAxiom(objectProperty);
+                manager.addAxiom(owlOntology, transitiveAxiom);
+            }*/
+        }
+
+        // Apply changes for data properties
+        for (Map.Entry<String, OntologyDataPropertyAPI> entry : dataProperties.entrySet()) {
+            String shortName = entry.getKey();
+            OntologyDataPropertyAPI dataPropertyAPI = entry.getValue();
+            IRI propertyIRI = IRI.create(ontology.getBaseIRI() + shortName);
+            OWLDataProperty dataProperty = dataFactory.getOWLDataProperty(propertyIRI);
+
+            // Check if the property already exists, or add it
+            if (!owlOntology.containsDataPropertyInSignature(propertyIRI)) {
+                manager.addAxiom(owlOntology, dataFactory.getOWLDeclarationAxiom(dataProperty));
+            }
+
+            // Add domain and range axioms if applicable
+            for (String domainClassName : dataPropertyAPI.getDomain()) {
+                OWLClass domainClass = dataFactory.getOWLClass(IRI.create(ontology.getBaseIRI() + domainClassName));
+                OWLDataPropertyDomainAxiom domainAxiom = dataFactory.getOWLDataPropertyDomainAxiom(dataProperty, domainClass);
+                manager.addAxiom(owlOntology, domainAxiom);
+            }
+
+            if (dataPropertyAPI.getRange() != null) {
+                OWLDatatype dataRange = dataFactory.getOWLDatatype(IRI.create(ontology.getBaseIRI() + dataPropertyAPI.getRange()));
+                OWLDataPropertyRangeAxiom rangeAxiom = dataFactory.getOWLDataPropertyRangeAxiom(dataProperty, dataRange);
+                manager.addAxiom(owlOntology, rangeAxiom);
+            }
+        }
+
+        // Apply changes for individuals
+        for (Map.Entry<String, OntologyIndividualAPI> entry : individuals.entrySet()) {
+            String shortName = entry.getKey();
+            OntologyIndividualAPI individualAPI = entry.getValue();
+            IRI individualIRI = IRI.create(ontology.getBaseIRI() + shortName);
+            OWLNamedIndividual individual = dataFactory.getOWLNamedIndividual(individualIRI);
+
+            // Check if the individual already exists, or add it
+            if (!owlOntology.containsIndividualInSignature(individualIRI)) {
+                manager.addAxiom(owlOntology, dataFactory.getOWLDeclarationAxiom(individual));
+            }
+
+            // Add class assertions (e.g., individual is an instance of a class)
+            /*for (String className : individualAPI.getClassAPI()) {
+                OWLClass owlClass = dataFactory.getOWLClass(IRI.create(ontology.getBaseIRI() + className));
+                OWLClassAssertionAxiom classAssertionAxiom = dataFactory.getOWLClassAssertionAxiom(owlClass, individual);
+                manager.addAxiom(owlOntology, classAssertionAxiom);
+            }*/
+
+            // Add property assertions (e.g., individual has property relations)
+            /*for (Map.Entry<String, String> propertyAssertion : individualAPI.getPropertyAssertions().entrySet()) {
+                String propertyName = propertyAssertion.getKey();
+                String value = propertyAssertion.getValue();
+
+                // Apply object property assertion (if applicable)
+                OWLObjectProperty objectProperty = dataFactory.getOWLObjectProperty(IRI.create(ontology.getBaseIRI() + propertyName));
+                OWLNamedIndividual objectIndividual = dataFactory.getOWLNamedIndividual(IRI.create(ontology.getBaseIRI() + value));
+                OWLObjectPropertyAssertionAxiom objectPropertyAssertion = dataFactory.getOWLObjectPropertyAssertionAxiom(objectProperty, individual, objectIndividual);
+                manager.addAxiom(owlOntology, objectPropertyAssertion);
+            }*/
+        }
     }
 
     // Helper method to get annotations from OWLEntity
