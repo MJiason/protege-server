@@ -12,7 +12,7 @@ import java.util.List;
 @Getter
 public class OntologyIndividualAPI {
     private String uniqueName;                   // Unique identifier for the individual
-    private OntologyClassAPI classAPI;           // The class this individual belongs to
+    private String classAPI;           // The class this individual belongs to
     private String label;                        // Human-readable label
     private String comment;                      // Optional description
     private List<OntologyObjectPropertyAPI> objectProperties; // Associated object properties

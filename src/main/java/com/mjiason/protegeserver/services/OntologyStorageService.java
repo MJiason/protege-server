@@ -139,10 +139,23 @@ public class OntologyStorageService {
 
     // Validation methods
     private void validateOntologyClass(OntologyClassAPI ontologyClass) {
+        // Validate that uniqueName is not null or empty
         if (ontologyClass.getUniqueName() == null || ontologyClass.getUniqueName().isEmpty()) {
-            throw new ValidationException("Unique name for Ontology Class cannot be null or empty");
+            throw new ValidationException("Unique name for Ontology Class cannot be null or empty.");
         }
-        // Add other validations as needed.
+
+        // Check if the uniqueName already exists in the ontologyClasses map
+        if (ontologyClasses.containsKey(ontologyClass.getUniqueName())) {
+            throw new ValidationException("Unique name '" + ontologyClass.getUniqueName() + "' already exists.");
+        }
+
+        // Validate that the parent class exists in the ontologyClasses map
+        String parentClass = ontologyClass.getParentClass();
+        if (parentClass != null && !parentClass.isEmpty() && !ontologyClasses.containsKey(parentClass)) {
+            throw new ValidationException("Parent class '" + parentClass + "' does not exist in the ontology.");
+        }
+
+        // Add any additional validations if needed.
     }
 
     private void validateObjectProperty(OntologyObjectPropertyAPI objectProperty) {
@@ -259,15 +272,12 @@ public class OntologyStorageService {
 
         owlOntology.classesInSignature().forEach(owlClass -> {
             IRI iri = owlClass.getIRI();
-            System.out.println("getShortForm: " + iri.getShortForm());
-            System.out.println("getIRIString: " + iri.getIRIString());
             String name = iri.getShortForm();
-            // String label = getLabelComment(owlClass);
-            // String comment = getClassComment(owlClass);
+            String parentClass = getParentClassName(owlClass);
 
             String label = getAnnotation(owlClass, owlOntology, OWLRDFVocabulary.RDFS_LABEL);
             String comment = getAnnotation(owlClass, owlOntology, OWLRDFVocabulary.RDFS_COMMENT);
-            ontologyClasses.put(name, new OntologyClassAPI(name, label, comment));
+            ontologyClasses.put(name, new OntologyClassAPI(name, parentClass, label, comment));
         });
 
         owlOntology.objectPropertiesInSignature().forEach(owlObjectProperty -> {
@@ -277,11 +287,13 @@ public class OntologyStorageService {
             String comment = getAnnotation(owlObjectProperty, owlOntology, OWLRDFVocabulary.RDFS_COMMENT);
 
             // Retrieve domain and range information as Lists of OntologyClassAPI
-            List<OntologyClassAPI> domain = getDomainClasses(owlObjectProperty, owlOntology);
-            List<OntologyClassAPI> range = getRangeClasses(owlObjectProperty, owlOntology);
+            List<String> domain = getDomainClasses(owlObjectProperty, owlOntology);
+            List<String> range = getRangeClasses(owlObjectProperty, owlOntology);
+
+            List<PropertyType> propertyTypes = getPropertyTypes(owlObjectProperty, owlOntology);
 
             // Initialize object properties with domain and range as lists
-            objectProperties.put(name, new OntologyObjectPropertyAPI(name, domain, range, label, comment, PropertyType.FunctionalProperty));
+            objectProperties.put(name, new OntologyObjectPropertyAPI(name, domain, range, label, comment, propertyTypes));
         });
 
         // Populate Ontology Data Properties
@@ -292,7 +304,7 @@ public class OntologyStorageService {
             String comment = getAnnotation(owlDataProperty, owlOntology, OWLRDFVocabulary.RDFS_COMMENT);
 
             // Retrieve domain and range for the data property
-            List<OntologyClassAPI> domain = getDomainClasses(owlDataProperty, owlOntology);
+            List<String> domain = getDomainClasses(owlDataProperty, owlOntology);
             String range = getDataRange(owlDataProperty, owlOntology);
 
             // Initialize data properties with domain and range
@@ -316,8 +328,49 @@ public class OntologyStorageService {
             List<OntologyDataPropertyAPI> individualDataProperties = getIndividualDataProperties(owlIndividual, owlOntology);
 
             // Create and add the individual to the storage
-            individuals.put(name, new OntologyIndividualAPI(name, classAPI, label, comment, individualObjectProperties, individualDataProperties));
+            individuals.put(name, new OntologyIndividualAPI(name, "", label, comment, individualObjectProperties, individualDataProperties));
         });
+    }
+
+    private List<PropertyType> getPropertyTypes(OWLObjectProperty property, OWLOntology ontology) {
+        List<PropertyType> propertyTypes = new ArrayList<>();
+
+        // Check if the property is functional
+        if (ontology.getFunctionalObjectPropertyAxioms(property).size() > 0) {
+            propertyTypes.add(PropertyType.FunctionalProperty);
+        }
+
+        // Check if the property is inverse functional
+        if (ontology.getInverseFunctionalObjectPropertyAxioms(property).size() > 0) {
+            propertyTypes.add(PropertyType.InverseFunctionalProperty);
+        }
+
+        // Check if the property is transitive
+        if (ontology.getTransitiveObjectPropertyAxioms(property).size() > 0) {
+            propertyTypes.add(PropertyType.TransitiveProperty);
+        }
+
+        // Check if the property is symmetric
+        if (ontology.getSymmetricObjectPropertyAxioms(property).size() > 0) {
+            propertyTypes.add(PropertyType.SymmetricProperty);
+        }
+
+        // Check if the property is asymmetric
+        if (ontology.getAsymmetricObjectPropertyAxioms(property).size() > 0) {
+            propertyTypes.add(PropertyType.AsymmetricProperty);
+        }
+
+        // Check if the property is reflexive
+        if (ontology.getReflexiveObjectPropertyAxioms(property).size() > 0) {
+            propertyTypes.add(PropertyType.ReflexiveProperty);
+        }
+
+        // Check if the property is irreflexive
+        if (ontology.getIrreflexiveObjectPropertyAxioms(property).size() > 0) {
+            propertyTypes.add(PropertyType.IrreflexiveProperty);
+        }
+
+        return propertyTypes;
     }
 
     // Convert in-memory data structures to a new OWLOntology and return it
@@ -336,11 +389,11 @@ public class OntologyStorageService {
             addAnnotations(ontology, owlObjectProperty, objectProperty.getLabel(), objectProperty.getComment());
             // Define domain and range for the property
             objectProperty.getDomain().forEach(domainClass -> {
-                OWLClass domain = manager.getOWLDataFactory().getOWLClass(IRI.create(domainClass.getUniqueName()));
+                OWLClass domain = manager.getOWLDataFactory().getOWLClass(IRI.create(domainClass));
                 manager.addAxiom(ontology, manager.getOWLDataFactory().getOWLObjectPropertyDomainAxiom(owlObjectProperty, domain));
             });
             objectProperty.getRange().forEach(rangeClass -> {
-                OWLClass range = manager.getOWLDataFactory().getOWLClass(IRI.create(rangeClass.getUniqueName()));
+                OWLClass range = manager.getOWLDataFactory().getOWLClass(IRI.create(rangeClass));
                 manager.addAxiom(ontology, manager.getOWLDataFactory().getOWLObjectPropertyRangeAxiom(owlObjectProperty, range));
             });
             manager.addAxiom(ontology, manager.getOWLDataFactory().getOWLDeclarationAxiom(owlObjectProperty));
@@ -365,6 +418,22 @@ public class OntologyStorageService {
     // Other service methods and fields...
 
     /**
+     * Retrieves the name of the parent class (if any) of a given OWL class.
+     *
+     * @param owlClass The OWL class.
+     * @return The parent class name, or an empty string if there is no parent class.
+     */
+    private String getParentClassName(OWLClass owlClass) {
+        for (OWLSubClassOfAxiom axiom : owlOntology.subClassAxiomsForSubClass(owlClass).toList()) {
+            OWLClassExpression superClass = axiom.getSuperClass();
+            if (!superClass.isAnonymous()) {
+                return superClass.asOWLClass().getIRI().getShortForm();
+            }
+        }
+        return "";
+    }
+
+    /**
      * Retrieves the annotation value (label or comment) for a given OWLEntity from the provided OWLOntology.
      *
      * @param entity the OWLEntity whose annotation is to be retrieved
@@ -383,36 +452,60 @@ public class OntologyStorageService {
                 .orElse("");  // If no annotation is found, return null
     }
 
-    private List<OntologyClassAPI> getDomainClasses(OWLObjectProperty property, OWLOntology ontology) {
-        return new ArrayList<>();/*property.getDomains(ontology)
-                .stream()
-                .map(domainIRI -> ontologyClasses.get(domainIRI.toString()))  // Map to OntologyClassAPI
-                .collect(Collectors.toList());*/
+    private List<String> getDomainClasses(OWLObjectProperty property, OWLOntology ontology) {
+        // Retrieve the domains of the given property from the ontology
+        Stream<OWLClassExpression> domains = ontology.objectPropertyDomainAxioms(property)
+                .map(OWLPropertyDomainAxiom::getDomain); // Extract the domain expressions
+
+        // Flatten the expressions into OWLClasses and convert to String
+        return domains
+                .flatMap(HasClassesInSignature::classesInSignature) // Extract OWLClass objects
+                .map(OWLClass::getIRI)                         // Get their IRIs
+                .map(IRI::getShortForm)                            // Convert IRIs to String
+                .collect(Collectors.toList());                 // Collect into a List
     }
 
     // Helper method to get domain classes as a List of OntologyClassAPI for Data Property
-    private List<OntologyClassAPI> getDomainClasses(OWLDataProperty property, OWLOntology ontology) {
-        return new ArrayList<>();/*property.getDomains(ontology)
-                .stream()
-                .map(domainIRI -> ontologyClasses.get(domainIRI.toString()))  // Map to OntologyClassAPI
-                .collect(Collectors.toList());*/
+    private List<String> getDomainClasses(OWLDataProperty property, OWLOntology ontology) {
+        // Retrieve the domain axioms of the given data property
+        Stream<OWLClassExpression> domains = ontology.dataPropertyDomainAxioms(property)
+                .map(OWLPropertyDomainAxiom::getDomain); // Extract the domain expressions
+
+        // Extract OWLClasses, convert to IRIs, and return as a list of strings
+        return domains
+                .flatMap(HasClassesInSignature::classesInSignature) // Extract OWLClass objects
+                .map(OWLClass::getIRI)                         // Get their IRIs
+                .map(IRI::getShortForm)                            // Convert IRIs to String
+                .collect(Collectors.toList());                 // Collect into a List
     }
 
     // Helper method to get range classes as a List of OntologyClassAPI
-    private List<OntologyClassAPI> getRangeClasses(OWLObjectProperty property, OWLOntology ontology) {
-        return new ArrayList<>();/*property.getRanges(ontology)
-                .stream()
-                .map(rangeIRI -> ontologyClasses.get(rangeIRI.toString()))  // Map to OntologyClassAPI
-                .collect(Collectors.toList());*/
+    private List<String> getRangeClasses(OWLObjectProperty property, OWLOntology ontology) {
+        // Retrieve the range axioms of the given object property
+        Stream<OWLClassExpression> ranges = ontology.objectPropertyRangeAxioms(property)
+                .map(OWLPropertyRangeAxiom::getRange); // Extract the range expressions
+
+        // Extract OWLClasses, convert to IRIs, and return as a list of strings
+        return ranges
+                .flatMap(HasClassesInSignature::classesInSignature) // Extract OWLClass objects
+                .map(OWLClass::getIRI)                       // Get their IRIs
+                .map(IRI::getShortForm)                          // Convert IRIs to String
+                .collect(Collectors.toList());               // Collect into a List
     }
 
     // Helper method to get the range for a Data Property (datatype like xsd:string)
     private String getDataRange(OWLDataProperty property, OWLOntology ontology) {
-        return ""; /*property.getRanges(ontology)
-                .stream()
-                .map(rangeIRI -> rangeIRI.toString())  // Get the range as a String (datatype)
-                .findFirst()
-                .orElse(null);  // Return null if no range is found*/
+        // Retrieve the range axioms for the given data property
+        Optional<OWLDatatype> dataRange = ontology.dataPropertyRangeAxioms(property)
+                .map(OWLPropertyRangeAxiom::getRange)  // Extract the range (OWLDataRange)
+                .filter(OWLDatatype.class::isInstance) // Keep only OWLDatatype instances
+                .map(OWLDatatype.class::cast)          // Cast to OWLDatatype
+                .findFirst();                          // Get the first range (if any)
+
+        // Return the IRI of the datatype as a string, or null if no range is defined
+        return dataRange.map(OWLDatatype::getIRI)
+                .map(IRI::getShortForm)
+                .orElse("");
     }
 
     // Helper method to get object properties associated with an individual
