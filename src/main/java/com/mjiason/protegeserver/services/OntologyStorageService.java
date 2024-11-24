@@ -204,6 +204,7 @@ public class OntologyStorageService {
 
     public OWLOntology loadOWLOntology(InputStream inputStream) {
         try {
+            manager = OWLManager.createOWLOntologyManager();
             return manager.loadOntologyFromOntologyDocument(inputStream);
         } catch (Exception e) {
             e.printStackTrace();
@@ -222,8 +223,6 @@ public class OntologyStorageService {
 
             OWLDocumentFormat format = manager.getOntologyFormat(owlOntology);
             if (format instanceof PrefixDocumentFormat prefixFormat) {
-
-
                 if (prefixFormat.getDefaultPrefix() != null) {
                     defaultPrefix = prefixFormat.getDefaultPrefix();
                 }
@@ -234,7 +233,7 @@ public class OntologyStorageService {
                 ontology.setBaseIRI(defaultPrefix);
 
                 ontology.setUniqueName(owlOntology.getOntologyID().getOntologyIRI()
-                        .map(IRI::getIRIString)
+                        .map(IRI::getShortForm)
                         .orElse("UnnamedOntology"));
 
                 System.out.println("Prefix: " + prefixFormat.getDefaultPrefix());
@@ -260,7 +259,9 @@ public class OntologyStorageService {
 
         owlOntology.classesInSignature().forEach(owlClass -> {
             IRI iri = owlClass.getIRI();
-            String name = prefixManager.getShortForm(iri);
+            System.out.println("getShortForm: " + iri.getShortForm());
+            System.out.println("getIRIString: " + iri.getIRIString());
+            String name = iri.getShortForm();
             // String label = getLabelComment(owlClass);
             // String comment = getClassComment(owlClass);
 
@@ -271,7 +272,7 @@ public class OntologyStorageService {
 
         owlOntology.objectPropertiesInSignature().forEach(owlObjectProperty -> {
             IRI iri = owlObjectProperty.getIRI();
-            String name = prefixManager.getShortForm(iri);
+            String name = iri.getShortForm();
             String label = getAnnotation(owlObjectProperty, owlOntology, OWLRDFVocabulary.RDFS_LABEL);
             String comment = getAnnotation(owlObjectProperty, owlOntology, OWLRDFVocabulary.RDFS_COMMENT);
 
@@ -286,7 +287,7 @@ public class OntologyStorageService {
         // Populate Ontology Data Properties
         owlOntology.dataPropertiesInSignature().forEach(owlDataProperty -> {
             IRI iri = owlDataProperty.getIRI();
-            String name = prefixManager.getShortForm(iri);
+            String name = iri.getShortForm();
             String label = getAnnotation(owlDataProperty, owlOntology, OWLRDFVocabulary.RDFS_LABEL);
             String comment = getAnnotation(owlDataProperty, owlOntology, OWLRDFVocabulary.RDFS_COMMENT);
 
@@ -301,7 +302,7 @@ public class OntologyStorageService {
         // Populate Ontology Individuals
         owlOntology.individualsInSignature().forEach(owlIndividual -> {
             IRI iri = owlIndividual.getIRI();
-            String name = prefixManager.getShortForm(iri);
+            String name = iri.getShortForm();
             String label = getAnnotation(owlIndividual, owlOntology, OWLRDFVocabulary.RDFS_LABEL);
             String comment = getAnnotation(owlIndividual, owlOntology, OWLRDFVocabulary.RDFS_COMMENT);
 
