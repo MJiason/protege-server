@@ -2,6 +2,7 @@ package com.mjiason.protegeserver.services;
 
 import com.mjiason.protegeserver.models.*;
 import org.semanticweb.owlapi.apibinding.OWLManager;
+import org.semanticweb.owlapi.formats.OWLXMLDocumentFormat;
 import org.semanticweb.owlapi.formats.PrefixDocumentFormat;
 import org.semanticweb.owlapi.model.*;
 import org.semanticweb.owlapi.search.EntitySearcher;
@@ -11,6 +12,7 @@ import org.springframework.stereotype.Service;
 
 import java.io.File;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.util.*;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -26,8 +28,6 @@ public class OntologyStorageService {
 
     private OWLOntology owlOntology;
     private OWLDataFactory dataFactory;
-
-    private DefaultPrefixManager prefixManager;
 
     private OWLOntologyManager manager = OWLManager.createOWLOntologyManager();
 
@@ -240,7 +240,7 @@ public class OntologyStorageService {
                     defaultPrefix = prefixFormat.getDefaultPrefix();
                 }
 
-                prefixManager = new DefaultPrefixManager(defaultPrefix);
+                DefaultPrefixManager prefixManager = new DefaultPrefixManager(defaultPrefix);
                 prefixManager.setPrefix("owl:", "http://www.w3.org/2002/07/owl#");
 
                 ontology.setBaseIRI(defaultPrefix);
@@ -319,16 +319,24 @@ public class OntologyStorageService {
             String comment = getAnnotation(owlIndividual, owlOntology, OWLRDFVocabulary.RDFS_COMMENT);
 
 
-            OntologyClassAPI classAPI = new OntologyClassAPI();
+            Set<OWLClassAssertionAxiom> classAssertions = owlOntology.getClassAssertionAxioms(owlIndividual);
+
+            List<String> classAPI = new ArrayList<>();
+            // Iterate through the assertions and print their class names
+            for (OWLClassAssertionAxiom classAssertion : classAssertions) {
+                OWLClass owlClass = classAssertion.getClassExpression().asOWLClass();
+                String individualClassName = owlClass.getIRI().getShortForm();
+                classAPI.add(individualClassName);
+            }
 
             // Retrieve associated object properties for the individual
-            List<OntologyObjectPropertyAPI> individualObjectProperties = getIndividualObjectProperties(owlIndividual, owlOntology);
+            Map<String, List<String>> individualObjectPropertyRelations = getIndividualObjectPropertyRelations(owlIndividual, owlOntology);
 
             // Retrieve associated data properties for the individual
-            List<OntologyDataPropertyAPI> individualDataProperties = getIndividualDataProperties(owlIndividual, owlOntology);
+            Map<String, List<String>> individualFilledDataProperties = getIndividualFilledDataProperties(owlIndividual, owlOntology);
 
             // Create and add the individual to the storage
-            individuals.put(name, new OntologyIndividualAPI(name, "", label, comment, individualObjectProperties, individualDataProperties));
+            individuals.put(name, new OntologyIndividualAPI(name, !classAPI.isEmpty()? classAPI.get(0):"", label, comment, individualObjectPropertyRelations, individualFilledDataProperties));
         });
     }
 
@@ -418,6 +426,20 @@ public class OntologyStorageService {
         return owlOntology;
     }
 
+    public void saveOntologyToOutputStream(OutputStream outputStream) throws OWLOntologyStorageException {
+        OWLOntologyManager manager = owlOntology.getOWLOntologyManager();
+        OWLDataFactory dataFactory = manager.getOWLDataFactory();
+        String defaultPrefix = "http://www.example.com/ontologies/UnnamedOntology.owl#";
+        OWLDocumentFormat format = manager.getOntologyFormat(owlOntology);
+
+        if (format == null) {
+            format = new OWLXMLDocumentFormat();
+            format.asPrefixOWLDocumentFormat().setDefaultPrefix(defaultPrefix);
+        }
+
+        manager.saveOntology(owlOntology, format, outputStream);
+    }
+
     public void applyChangesToOntology() {
         OWLOntologyManager manager = owlOntology.getOWLOntologyManager();
         OWLDataFactory dataFactory = manager.getOWLDataFactory();
@@ -439,6 +461,26 @@ public class OntologyStorageService {
                 OWLClass parentClass = dataFactory.getOWLClass(IRI.create(ontology.getBaseIRI() + ontologyClassAPI.getParentClass()));
                 OWLAxiom subclassAxiom = dataFactory.getOWLSubClassOfAxiom(owlClass, parentClass);
                 manager.addAxiom(owlOntology, subclassAxiom);
+            }
+
+            // Add label annotation if provided
+            if (ontologyClassAPI.getLabel() != null && !ontologyClassAPI.getLabel().isEmpty()) {
+                OWLAnnotation labelAnnotation = dataFactory.getOWLAnnotation(
+                        dataFactory.getRDFSLabel(),
+                        dataFactory.getOWLLiteral(ontologyClassAPI.getLabel())
+                );
+                OWLAxiom labelAxiom = dataFactory.getOWLAnnotationAssertionAxiom(classIRI, labelAnnotation);
+                manager.addAxiom(owlOntology, labelAxiom);
+            }
+
+            // Add comment annotation if provided
+            if (ontologyClassAPI.getComment() != null && !ontologyClassAPI.getComment().isEmpty()) {
+                OWLAnnotation commentAnnotation = dataFactory.getOWLAnnotation(
+                        dataFactory.getRDFSComment(),
+                        dataFactory.getOWLLiteral(ontologyClassAPI.getComment())
+                );
+                OWLAxiom commentAxiom = dataFactory.getOWLAnnotationAssertionAxiom(classIRI, commentAnnotation);
+                manager.addAxiom(owlOntology, commentAxiom);
             }
         }
 
@@ -467,12 +509,66 @@ public class OntologyStorageService {
                 manager.addAxiom(owlOntology, rangeAxiom);
             }
 
-            // Add other property characteristics (e.g., transitive, symmetric)
-            // Example: if the property is transitive
-            /*if (objectPropertyAPI.isTransitive()) {
-                OWLTransitiveObjectPropertyAxiom transitiveAxiom = dataFactory.getOWLTransitiveObjectPropertyAxiom(objectProperty);
-                manager.addAxiom(owlOntology, transitiveAxiom);
-            }*/
+            // Add label annotation if provided
+            if (objectPropertyAPI.getLabel() != null && !objectPropertyAPI.getLabel().isEmpty()) {
+                OWLAnnotation labelAnnotation = dataFactory.getOWLAnnotation(
+                        dataFactory.getRDFSLabel(),
+                        dataFactory.getOWLLiteral(objectPropertyAPI.getLabel())
+                );
+                OWLAxiom labelAxiom = dataFactory.getOWLAnnotationAssertionAxiom(propertyIRI, labelAnnotation);
+                manager.addAxiom(owlOntology, labelAxiom);
+            }
+
+            // Add comment annotation if provided
+            if (objectPropertyAPI.getComment() != null && !objectPropertyAPI.getComment().isEmpty()) {
+                OWLAnnotation commentAnnotation = dataFactory.getOWLAnnotation(
+                        dataFactory.getRDFSComment(),
+                        dataFactory.getOWLLiteral(objectPropertyAPI.getComment())
+                );
+                OWLAxiom commentAxiom = dataFactory.getOWLAnnotationAssertionAxiom(propertyIRI, commentAnnotation);
+                manager.addAxiom(owlOntology, commentAxiom);
+            }
+
+            for (PropertyType type : objectPropertyAPI.getPropertyTypes()) {
+                switch (type) {
+                    case FunctionalProperty -> {
+                        // Create functional property axiom
+                        OWLFunctionalObjectPropertyAxiom functionalAxiom = dataFactory.getOWLFunctionalObjectPropertyAxiom(objectProperty);
+                        owlOntology.getOWLOntologyManager().addAxiom(owlOntology, functionalAxiom);
+                    }
+                    case InverseFunctionalProperty -> {
+                        // Create inverse functional property axiom
+                        OWLInverseFunctionalObjectPropertyAxiom inverseFunctionalAxiom = dataFactory.getOWLInverseFunctionalObjectPropertyAxiom(objectProperty);
+                        owlOntology.getOWLOntologyManager().addAxiom(owlOntology, inverseFunctionalAxiom);
+                    }
+                    case TransitiveProperty -> {
+                        // Create transitive property axiom
+                        OWLTransitiveObjectPropertyAxiom transitiveAxiom = dataFactory.getOWLTransitiveObjectPropertyAxiom(objectProperty);
+                        owlOntology.getOWLOntologyManager().addAxiom(owlOntology, transitiveAxiom);
+                    }
+                    case SymmetricProperty -> {
+                        // Create symmetric property axiom
+                        OWLSymmetricObjectPropertyAxiom symmetricAxiom = dataFactory.getOWLSymmetricObjectPropertyAxiom(objectProperty);
+                        owlOntology.getOWLOntologyManager().addAxiom(owlOntology, symmetricAxiom);
+                    }
+                    case AsymmetricProperty -> {
+                        // Create asymmetric property axiom
+                        OWLAsymmetricObjectPropertyAxiom asymmetricAxiom = dataFactory.getOWLAsymmetricObjectPropertyAxiom(objectProperty);
+                        owlOntology.getOWLOntologyManager().addAxiom(owlOntology, asymmetricAxiom);
+                    }
+                    case ReflexiveProperty -> {
+                        // Create reflexive property axiom
+                        OWLReflexiveObjectPropertyAxiom reflexiveAxiom = dataFactory.getOWLReflexiveObjectPropertyAxiom(objectProperty);
+                        owlOntology.getOWLOntologyManager().addAxiom(owlOntology, reflexiveAxiom);
+                    }
+                    case IrreflexiveProperty -> {
+                        // Create irreflexive property axiom
+                        OWLIrreflexiveObjectPropertyAxiom irreflexiveAxiom = dataFactory.getOWLIrreflexiveObjectPropertyAxiom(objectProperty);
+                        owlOntology.getOWLOntologyManager().addAxiom(owlOntology, irreflexiveAxiom);
+                    }
+                    default -> throw new IllegalArgumentException("Unsupported PropertyType: " + type);
+                }
+            }
         }
 
         // Apply changes for data properties
@@ -499,6 +595,26 @@ public class OntologyStorageService {
                 OWLDataPropertyRangeAxiom rangeAxiom = dataFactory.getOWLDataPropertyRangeAxiom(dataProperty, dataRange);
                 manager.addAxiom(owlOntology, rangeAxiom);
             }
+
+            // Add label annotation if provided
+            if (dataPropertyAPI.getLabel() != null && !dataPropertyAPI.getLabel().isEmpty()) {
+                OWLAnnotation labelAnnotation = dataFactory.getOWLAnnotation(
+                        dataFactory.getRDFSLabel(),
+                        dataFactory.getOWLLiteral(dataPropertyAPI.getLabel())
+                );
+                OWLAxiom labelAxiom = dataFactory.getOWLAnnotationAssertionAxiom(propertyIRI, labelAnnotation);
+                manager.addAxiom(owlOntology, labelAxiom);
+            }
+
+            // Add comment annotation if provided
+            if (dataPropertyAPI.getComment() != null && !dataPropertyAPI.getComment().isEmpty()) {
+                OWLAnnotation commentAnnotation = dataFactory.getOWLAnnotation(
+                        dataFactory.getRDFSComment(),
+                        dataFactory.getOWLLiteral(dataPropertyAPI.getComment())
+                );
+                OWLAxiom commentAxiom = dataFactory.getOWLAnnotationAssertionAxiom(propertyIRI, commentAnnotation);
+                manager.addAxiom(owlOntology, commentAxiom);
+            }
         }
 
         // Apply changes for individuals
@@ -513,24 +629,45 @@ public class OntologyStorageService {
                 manager.addAxiom(owlOntology, dataFactory.getOWLDeclarationAxiom(individual));
             }
 
-            // Add class assertions (e.g., individual is an instance of a class)
-            /*for (String className : individualAPI.getClassAPI()) {
-                OWLClass owlClass = dataFactory.getOWLClass(IRI.create(ontology.getBaseIRI() + className));
-                OWLClassAssertionAxiom classAssertionAxiom = dataFactory.getOWLClassAssertionAxiom(owlClass, individual);
-                manager.addAxiom(owlOntology, classAssertionAxiom);
-            }*/
+            OWLClass owlClass = dataFactory.getOWLClass(IRI.create(ontology.getBaseIRI() + individualAPI.getClassName()));
+            OWLClassAssertionAxiom classAssertionAxiom = dataFactory.getOWLClassAssertionAxiom(owlClass, individual);
+            manager.addAxiom(owlOntology, classAssertionAxiom);
 
             // Add property assertions (e.g., individual has property relations)
-            /*for (Map.Entry<String, String> propertyAssertion : individualAPI.getPropertyAssertions().entrySet()) {
-                String propertyName = propertyAssertion.getKey();
-                String value = propertyAssertion.getValue();
+            for (Map.Entry<String, List<String>> propertyRelation : individualAPI.getObjectPropertyRelations().entrySet()) {
+                String propertyName = propertyRelation.getKey();
+                List<String> relatedIndividuals = propertyRelation.getValue();
 
-                // Apply object property assertion (if applicable)
-                OWLObjectProperty objectProperty = dataFactory.getOWLObjectProperty(IRI.create(ontology.getBaseIRI() + propertyName));
-                OWLNamedIndividual objectIndividual = dataFactory.getOWLNamedIndividual(IRI.create(ontology.getBaseIRI() + value));
-                OWLObjectPropertyAssertionAxiom objectPropertyAssertion = dataFactory.getOWLObjectPropertyAssertionAxiom(objectProperty, individual, objectIndividual);
-                manager.addAxiom(owlOntology, objectPropertyAssertion);
-            }*/
+                // Iterate over all related individuals for the current property
+                for (String relatedIndividualName : relatedIndividuals) {
+                    // Create object property
+                    OWLObjectProperty objectProperty = dataFactory.getOWLObjectProperty(IRI.create(ontology.getBaseIRI() + propertyName));
+                    // Create related individual
+                    OWLNamedIndividual relatedIndividual = dataFactory.getOWLNamedIndividual(IRI.create(ontology.getBaseIRI() + relatedIndividualName));
+                    // Create object property assertion axiom
+                    OWLObjectPropertyAssertionAxiom objectPropertyAssertion = dataFactory.getOWLObjectPropertyAssertionAxiom(objectProperty, individual, relatedIndividual);
+                    // Add the axiom to the ontology
+                    manager.addAxiom(owlOntology, objectPropertyAssertion);
+                }
+            }
+
+            // Add data property assertions (e.g., individual has data property relations)
+            for (Map.Entry<String, List<String>> dataPropertyRelation : individualAPI.getFilledDataProperties().entrySet()) {
+                String propertyName = dataPropertyRelation.getKey();
+                List<String> propertyValues = dataPropertyRelation.getValue();
+
+                // Iterate over all values for the current data property
+                for (String value : propertyValues) {
+                    // Create data property
+                    OWLDataProperty dataProperty = dataFactory.getOWLDataProperty(IRI.create(ontology.getBaseIRI() + propertyName));
+                    // Create literal for the value
+                    OWLLiteral literalValue = dataFactory.getOWLLiteral(value);
+                    // Create data property assertion axiom
+                    OWLDataPropertyAssertionAxiom dataPropertyAssertion = dataFactory.getOWLDataPropertyAssertionAxiom(dataProperty, individual, literalValue);
+                    // Add the axiom to the ontology
+                    manager.addAxiom(owlOntology, dataPropertyAssertion);
+                }
+            }
         }
     }
 
@@ -628,20 +765,35 @@ public class OntologyStorageService {
                 .orElse("");
     }
 
-    // Helper method to get object properties associated with an individual
-    private List<OntologyObjectPropertyAPI> getIndividualObjectProperties(OWLNamedIndividual individual, OWLOntology ontology) {
-        return individual.getObjectPropertiesInSignature()
-                .stream()
-                .map(iri -> objectProperties.get(iri.toString()))  // Map to OntologyObjectPropertyAPI
-                .collect(Collectors.toList());
+    private Map<String, List<String>> getIndividualObjectPropertyRelations(OWLNamedIndividual individual, OWLOntology ontology) {
+        Map<String, List<String>> objectPropertyRelations = new HashMap<>();
+
+        ontology.objectPropertyAssertionAxioms(individual)
+                .forEach(axiom -> {
+                    String propertyName = axiom.getProperty().asOWLObjectProperty().getIRI().getShortForm();
+                    String targetIndividual = axiom.getObject().asOWLNamedIndividual().getIRI().getShortForm();
+
+                    // Add the relation to the map
+                    objectPropertyRelations.computeIfAbsent(propertyName, k -> new ArrayList<>()).add(targetIndividual);
+                });
+
+        return objectPropertyRelations;
     }
 
-    // Helper method to get data properties associated with an individual
-    private List<OntologyDataPropertyAPI> getIndividualDataProperties(OWLNamedIndividual individual, OWLOntology ontology) {
-        return individual.getDataPropertiesInSignature()
-                .stream()
-                .map(iri -> dataProperties.get(iri.toString()))  // Map to OntologyDataPropertyAPI
-                .collect(Collectors.toList());
+    private Map<String, List<String>> getIndividualFilledDataProperties(OWLNamedIndividual individual, OWLOntology ontology) {
+        Map<String, List<String>> filledDataProperties = new HashMap<>();
+
+        ontology.dataPropertyAssertionAxioms(individual)
+                .forEach(axiom -> {
+                    String propertyName = axiom.getProperty().asOWLDataProperty().getIRI().getShortForm();
+                    String propertyValue = axiom.getObject().getLiteral();
+
+                    // Add the property value to the map
+                    filledDataProperties.computeIfAbsent(propertyName, k -> new ArrayList<>()).add(propertyValue);
+                });
+
+
+        return filledDataProperties;
     }
 
     // Helper method to add label and comment annotations

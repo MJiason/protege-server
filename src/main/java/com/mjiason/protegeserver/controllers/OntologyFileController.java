@@ -45,12 +45,8 @@ public class OntologyFileController {
     public ResponseEntity<byte[]> downloadOntologyFile() {
         try {
             ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
-            OWLOntologyManager manager = OWLManager.createOWLOntologyManager();
-            // Set the format explicitly
-            OWLDocumentFormat format = new OWLXMLDocumentFormat();
-            format.asPrefixOWLDocumentFormat().setDefaultPrefix("http://example.com/ontology#");
             storageService.applyChangesToOntology();
-            manager.saveOntology(storageService.getOWLOntology(), format, outputStream);
+            storageService.saveOntologyToOutputStream(outputStream);
 
             return ResponseEntity.ok()
                     .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=ontology.owl")
