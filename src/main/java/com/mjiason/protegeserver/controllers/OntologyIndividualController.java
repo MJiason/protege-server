@@ -23,9 +23,9 @@ public class OntologyIndividualController {
 
     @PostMapping
     @Operation(summary = "Create an Individual", description = "Adds a new individual to the ontology with validation.")
-    public ResponseEntity<Void> createIndividual(@RequestBody OntologyIndividualAPI individual) {
+    public ResponseEntity<OntologyIndividualAPI> createIndividual(@RequestBody OntologyIndividualAPI individual) {
         storageService.addIndividual(individual);
-        return ResponseEntity.ok().build();
+        return ResponseEntity.ok(individual);
     }
 
     @GetMapping("/{uniqueName}")

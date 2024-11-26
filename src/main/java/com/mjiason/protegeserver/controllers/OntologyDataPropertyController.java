@@ -23,9 +23,9 @@ public class OntologyDataPropertyController {
 
     @PostMapping
     @Operation(summary = "Create a Data Property", description = "Adds a new data property to the ontology with validation.")
-    public ResponseEntity<Void> createDataProperty(@RequestBody OntologyDataPropertyAPI dataProperty) {
+    public ResponseEntity<OntologyDataPropertyAPI> createDataProperty(@RequestBody OntologyDataPropertyAPI dataProperty) {
         storageService.addDataProperty(dataProperty);
-        return ResponseEntity.ok().build();
+        return ResponseEntity.ok(dataProperty);
     }
 
     @GetMapping("/{uniqueName}")
